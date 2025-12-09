@@ -1,7 +1,10 @@
 package de.seuhd.campuscoffee.domain.implementation;
 
 import de.seuhd.campuscoffee.domain.configuration.ApprovalConfiguration;
+import de.seuhd.campuscoffee.domain.exceptions.ValidationException;
+import de.seuhd.campuscoffee.domain.model.objects.Pos;
 import de.seuhd.campuscoffee.domain.model.objects.Review;
+import de.seuhd.campuscoffee.domain.model.objects.User;
 import de.seuhd.campuscoffee.domain.ports.api.ReviewService;
 import de.seuhd.campuscoffee.domain.ports.data.CrudDataService;
 import de.seuhd.campuscoffee.domain.ports.data.PosDataService;
@@ -23,7 +26,6 @@ public class ReviewServiceImpl extends CrudServiceImpl<Review, Long> implements 
     private final ReviewDataService reviewDataService;
     private final UserDataService userDataService;
     private final PosDataService posDataService;
-    // TODO: Try to find out the purpose of this class and how it is connected to the application.yaml configuration file.
     private final ApprovalConfiguration approvalConfiguration;
 
     public ReviewServiceImpl(@NonNull ReviewDataService reviewDataService,
@@ -45,7 +47,18 @@ public class ReviewServiceImpl extends CrudServiceImpl<Review, Long> implements 
     @Override
     @Transactional
     public @NonNull Review upsert(@NonNull Review review) {
-        // TODO: Implement the missing business logic here
+        Pos pos;
+        try {
+            pos = posDataService.getById(review.pos().getId());
+        } catch (NullPointerException e) {
+            throw new ValidationException(
+                    "The POS does not exist.");
+        }
+
+        List<Review> existingReview =  reviewDataService.filter(pos, review.author());
+        if(!existingReview.isEmpty())
+            throw new ValidationException(
+                    "The author has already submitted a review for this POS.");
 
         return super.upsert(review);
     }
@@ -63,21 +76,35 @@ public class ReviewServiceImpl extends CrudServiceImpl<Review, Long> implements 
                 review.getId(), userId);
 
         // validate that the user exists
-        // TODO: Implement the required business logic here
+        try {
+            userDataService.getById(userId);
+        } catch (NullPointerException e) {
+            throw new ValidationException(
+                    "The user approving the review does not exist.");
+        }
 
         // validate that the review exists
-        // TODO: Implement the required business logic here
+        try {
+            reviewDataService.getById(review.getId());
+        } catch (NullPointerException e) {
+            throw new ValidationException(
+                    "The review to be approved does not exist.");
+        }
 
         // a user cannot approve their own review
-        // TODO: Implement the required business logic here
+        if(review.author().getId().equals(userId)) {
+            throw new ValidationException("A user cannot approve their own review.");
+        }
 
         // increment approval count
-        // TODO: Implement the required business logic here
+        Review updatedReview = review.toBuilder()
+                .approvalCount(review.approvalCount() + 1)
+                .build();
 
         // update approval status to determine if the review now reaches the approval quorum
-        // TODO: Implement the required business logic here
+        updatedReview = updateApprovalStatus(updatedReview);
 
-        return reviewDataService.upsert(review);
+        return reviewDataService.upsert(updatedReview);
     }
 
     /**
